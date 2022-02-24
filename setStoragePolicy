@@ -18,23 +18,34 @@ $packageName = 'Microsoft.AVS.Management'
 # Cmdlet name
 $cmdletName = 'Set-VMStoragePolicy'
 
-# Find current package version 
+# Find package 
 $package = az vmware script-package list --resource-group $PrivateCloudResourceGroup --private-cloud $PrivateCloudName --query "[? contains(name,'$packageName')].name" -o tsv
-$packageVersion = $package.Substring($package.IndexOf('@')+1)
 
-# Check if a cmdlet named as defined by variable $cmdletName exists in the package's current version
-$cmdlet = az vmware script-cmdlet show --name $cmdletName --script-package $package --resource-group $PrivateCloudResourceGroup --private-cloud $PrivateCloudName --query name -o tsv
+# If package exists
+if ($null -ne $package -and $package.StartsWith($packageName)) {
+    $packageVersion = $package.Substring($package.IndexOf('@')+1)
+    
+    # Find cmdlet in package
+    $cmdlet = az vmware script-cmdlet list --script-package $package --resource-group $PrivateCloudResourceGroup --private-cloud $PrivateCloudName --query "[? contains(name,'$cmdletName')].name" -o tsv
+    
+    # If cmdlet exists in package
+    if ($null -ne $cmdlet -and $cmdlet.Equals($cmdletName)) {
+        $cmdletId = "$packageName/$packageVersion/$cmdletName"
 
-# Build cmdlet Id to be passed to az vmware script-execution
-$cmdletId = "$packageName/$packageVersion/$cmdletName"
-
-# If a cmdlet named as defined by variable $cmdletName exists in the package's current version, run it
-if ($cmdletName.Equals($cmdlet)) {
-    foreach ($vm in $VmNames) {
-        $guid = new-guid
-        $vm = $vm.trim()
-        $execname = "$cmdletname-$vm-$guid"
-        Write-Host $execname
-        az vmware script-execution create --name $execname --resource-group $PrivateCloudResourceGroup --private-cloud $PrivateCloudName --script-cmdlet-id $cmdletId --timeout P0Y0M0DT0H60M60S --parameter name=VMName type=Value value=$vm --parameter name=StoragePolicyName type=Value value=$StoragePolicyName
+        foreach ($vm in $VmNames) {
+            $guid = new-guid
+            $vm = $vm.trim()
+            $execname = "$cmdletname-$vm-$guid"
+            Write-Host "Invoking cmdlet $cmdletName on VM: $vm."
+            az vmware script-execution create --name $execname --resource-group $PrivateCloudResourceGroup --private-cloud $PrivateCloudName --script-cmdlet-id $cmdletId --timeout P0Y0M0DT0H60M60S --parameter name=VMName type=Value value=$vm --parameter name=StoragePolicyName type=Value value=$StoragePolicyName
+        }
     }
+    # Cmdlet does not exist in package
+    else {
+        Write-Error "Cmdlet $cmdletName does not exist in package $package!"
+    }
+}
+# Package does not exist
+else {
+    Write-Error "Package $packageName does not exist in Private Cloud $PrivateCloudName!"
 }
